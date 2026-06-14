@@ -59,6 +59,20 @@ OrientationResult pcaFallback(const Mesh& mesh) {
 }
 }  // namespace
 
+OrientationResult orientFromAxes(const Mesh& mesh, const Eigen::Vector3d& Zhint,
+                                 const Eigen::Vector3d& Xhint, const Eigen::Vector3d& origin,
+                                 const std::string& method, double confidence) {
+  (void)mesh;
+  Eigen::Vector3d X, Y, Z;
+  buildFrame(Zhint, Xhint, X, Y, Z);
+  OrientationResult r;
+  r.transform = makeTransform(X, Y, Z, origin);
+  r.eulerXYZ_deg = r.transform.topLeftCorner<3, 3>().eulerAngles(0, 1, 2) * kRad2Deg;
+  r.method = method;
+  r.confidence = std::clamp(confidence, 0.0, 1.0);
+  return r;
+}
+
 OrientationResult orient(const Mesh& mesh, std::vector<DetectedPlane>& planes,
                          const std::vector<DetectedCylinder>& cylinders,
                          const SymmetryPlane& symmetry) {

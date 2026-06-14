@@ -8,13 +8,12 @@ a scan against nominal.
 See [`docs/PLAN.md`](docs/PLAN.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
 and [`docs/ALGORITHMS.md`](docs/ALGORITHMS.md) for the full design.
 
-> Status: **M2 — auto-orientation.** Everything from M1 plus the analysis
-> pipeline: normals → region-grow **plane extraction** → RANSAC **bore/cylinder
-> detection** → reflective **symmetry** → **Top/Front/Right** datum assignment
-> with a confidence + method readout. Runs on a worker thread with a live
-> progress panel; the part snaps to the datum frame with translucent datum
-> planes; detected planes/bores are listed; "Revert to Auto" re-frames.
-> Manual datum tools (M3) and the deviation heatmap (M4) follow.
+> Status: **M3 — manual datum tools.** Everything from M2 plus full manual
+> override: reassign any detected plane to Top/Front/Right, **3-point plane**
+> picking, **click-a-hole cylinder** fit (ray-cast → smooth-region grow →
+> local RANSAC), nudge (per-axis rotate / flip), and an **ImGuizmo** rotate/
+> move gizmo on the datum frame. "Revert to Auto" restores the auto result.
+> The deviation heatmap (M4) follows.
 >
 > Run analysis on startup with the `--analyze` flag.
 >
@@ -54,3 +53,8 @@ On Linux you also need GL/X11 dev headers: `sudo apt-get install libgl1-mesa-dev
 ## Controls
 - **Left-drag** orbit · **Middle/Right-drag** pan · **Wheel** zoom
 - View presets (Top/Front/Right/Iso/Back/Left) in the right-hand *Datums* panel
+- **Run Analysis** to auto-orient; reassign datums with the **T/F/R** buttons
+  per detected plane
+- **Plane from 3 Points** / **Pick Hole / Cylinder**: choose the target datum,
+  click in the viewport (**Esc** cancels)
+- **Nudge Datum**: per-axis rotate, or enable the **Gizmo** to drag the frame

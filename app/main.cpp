@@ -7,6 +7,7 @@
 #include <imgui_internal.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
+#include <ImGuizmo.h>
 
 #include "AppState.h"
 #include "Panels.h"
@@ -131,6 +132,7 @@ int main(int argc, char** argv) {
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
+    ImGuizmo::BeginFrame();
 
     ImGuiID dockId = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
     if (!layoutBuilt) {

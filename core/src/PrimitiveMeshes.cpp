@@ -68,19 +68,23 @@ Mesh makeCylinder(double radius, double height, int segments) {
   std::vector<Eigen::Vector3i> F;
   const double hz = height * 0.5;
   const double tau = 2.0 * 3.14159265358979323846;
-  // side wall
+  // side wall — shared ring vertices so the wall is one connected patch
+  const int bottom = 0;                       // ring start indices
+  const int top = segments;
   for (int i = 0; i < segments; ++i) {
-    const double a0 = tau * i / segments;
-    const double a1 = tau * (i + 1) / segments;
-    const Eigen::Vector3d d0(std::cos(a0), std::sin(a0), 0);
-    const Eigen::Vector3d d1(std::cos(a1), std::sin(a1), 0);
-    const int base = static_cast<int>(V.size());
-    V.push_back({radius * d0.x(), radius * d0.y(), -hz}); N.push_back(d0);
-    V.push_back({radius * d1.x(), radius * d1.y(), -hz}); N.push_back(d1);
-    V.push_back({radius * d1.x(), radius * d1.y(), hz});  N.push_back(d1);
-    V.push_back({radius * d0.x(), radius * d0.y(), hz});  N.push_back(d0);
-    F.push_back({base + 0, base + 1, base + 2});
-    F.push_back({base + 0, base + 2, base + 3});
+    const double a = tau * i / segments;
+    const Eigen::Vector3d d(std::cos(a), std::sin(a), 0);
+    V.push_back({radius * d.x(), radius * d.y(), -hz}); N.push_back(d);
+  }
+  for (int i = 0; i < segments; ++i) {
+    const double a = tau * i / segments;
+    const Eigen::Vector3d d(std::cos(a), std::sin(a), 0);
+    V.push_back({radius * d.x(), radius * d.y(), hz}); N.push_back(d);
+  }
+  for (int i = 0; i < segments; ++i) {
+    const int i1 = (i + 1) % segments;
+    F.push_back({bottom + i, bottom + i1, top + i1});
+    F.push_back({bottom + i, top + i1, top + i});
   }
   // caps (triangle fans)
   for (int cap = 0; cap < 2; ++cap) {

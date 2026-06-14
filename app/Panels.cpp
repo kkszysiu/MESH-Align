@@ -3,6 +3,7 @@
 
 #include "ma_gl/GL.h"
 #include <imgui.h>
+#include <ImGuizmo.h>
 #include <portable-file-dialogs.h>
 
 #include <cstdio>
@@ -173,7 +174,15 @@ void drawRightPanel(AppState& s) {
       };
       for (size_t i = 0; i < s.result.planes.size(); ++i) {
         const auto& p = s.result.planes[i];
-        ImGui::Text("Plane %zu  %3.0f%%  [%s]", i, p.confidence * 100.0, roleName(p.role));
+        ImGui::PushID(static_cast<int>(i));
+        ImGui::Text("Plane %2zu  %3.0f%%  [%s]", i, p.confidence * 100.0, roleName(p.role));
+        ImGui::SameLine();
+        if (ImGui::SmallButton("T")) s.assignDatum(ma::DatumRole::Top, p.normal);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("F")) s.assignDatum(ma::DatumRole::Front, p.normal);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("R")) s.assignDatum(ma::DatumRole::Right, p.normal);
+        ImGui::PopID();
       }
     }
     if (!s.result.cylinders.empty()) {
@@ -195,12 +204,56 @@ void drawRightPanel(AppState& s) {
     ImGui::EndDisabled();
     ImGui::Checkbox("Show datum planes", &s.showDatums);
 
-    auto soon = [&](const char* label) {
-      if (ImGui::Button(label, ImVec2(-FLT_MIN, 0)))
-        s.logLine(std::string(label) + ": coming in a later milestone");
+    ImGui::Separator();
+    static int roleIdx = 0;
+    const char* roles[] = {"Top", "Front", "Right"};
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::Combo("##assignto", &roleIdx, roles, 3);
+    auto role = [&]() {
+      return roleIdx == 0 ? ma::DatumRole::Top
+             : roleIdx == 1 ? ma::DatumRole::Front
+                            : ma::DatumRole::Right;
     };
-    soon("Plane from 3 Points");
-    soon("Pick Hole / Cylinder");
+    ImGui::BeginDisabled(s.mesh.empty());
+    if (ImGui::Button("Plane from 3 Points", ImVec2(-FLT_MIN, 0)))
+      s.startPick(AppState::PickMode::ThreePoint, role());
+    if (ImGui::Button("Pick Hole / Cylinder", ImVec2(-FLT_MIN, 0)))
+      s.startPick(AppState::PickMode::Hole, role());
+    ImGui::EndDisabled();
+    if (s.pickMode != AppState::PickMode::None) {
+      ImGui::TextColored(ImVec4(1, 0.8f, 0.2f, 1), "Picking... (Esc to cancel)");
+      if (s.pickMode == AppState::PickMode::ThreePoint)
+        ImGui::Text("points: %zu/3", s.pickedPoints.size());
+    }
+  }
+
+  if (ImGui::CollapsingHeader("Nudge Datum", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::BeginDisabled(!s.hasResult && !s.userEdited);
+    ImGui::Checkbox("Gizmo", &s.showGizmo);
+    if (s.showGizmo) {
+      ImGui::SameLine();
+      ImGui::RadioButton("Rotate", &s.gizmoOp, 0);
+      ImGui::SameLine();
+      ImGui::RadioButton("Move", &s.gizmoOp, 1);
+    }
+    static float step = 5.0f;
+    ImGui::SetNextItemWidth(80);
+    ImGui::DragFloat("step (deg)", &step, 0.5f, 0.5f, 90.0f, "%.1f");
+    auto rotRow = [&](const char* label, const Eigen::Vector3d& axis) {
+      ImGui::Text("%s", label);
+      ImGui::SameLine();
+      ImGui::PushID(label);
+      if (ImGui::SmallButton("-")) s.applyWorldRotation(axis, -step);
+      ImGui::SameLine();
+      if (ImGui::SmallButton("+")) s.applyWorldRotation(axis, step);
+      ImGui::PopID();
+    };
+    rotRow("Rot X", Eigen::Vector3d(1, 0, 0));
+    rotRow("Rot Y", Eigen::Vector3d(0, 1, 0));
+    rotRow("Rot Z", Eigen::Vector3d(0, 0, 1));
+    if (ImGui::Button("Flip Up (180 X)", ImVec2(-FLT_MIN, 0)))
+      s.applyWorldRotation(Eigen::Vector3d(1, 0, 0), 180.0);
+    ImGui::EndDisabled();
   }
 
   ImGui::End();
@@ -235,6 +288,21 @@ void drawViewport(AppState& s) {
       s.planeRenderer.draw(view, proj, O, Y, Z, h, Eigen::Vector4f(0.45f, 0.9f, 0.55f, 0.16f));  // Right
     }
 
+    // Picked-point markers (drawn on top, depth-test off).
+    if (!s.pickedPoints.empty()) {
+      const Eigen::Matrix4f model = s.modelF();
+      const Eigen::Vector3f camR = view.row(0).head<3>();
+      const Eigen::Vector3f camU = view.row(1).head<3>();
+      const float msz = s.mesh.empty() ? 0.1f : (float)s.mesh.diagonal() * 0.012f;
+      glDisable(GL_DEPTH_TEST);
+      for (const auto& p : s.pickedPoints) {
+        const Eigen::Vector4f w = model * Eigen::Vector4f((float)p.x(), (float)p.y(), (float)p.z(), 1);
+        s.planeRenderer.draw(view, proj, w.head<3>(), camR, camU, msz,
+                             Eigen::Vector4f(1.0f, 0.85f, 0.2f, 0.95f));
+      }
+      glEnable(GL_DEPTH_TEST);
+    }
+
     if (s.showTriad) {
       float len = s.mesh.empty() ? 1.0f : (float)s.mesh.diagonal() * 0.55f;
       glDisable(GL_DEPTH_TEST);
@@ -244,16 +312,52 @@ void drawViewport(AppState& s) {
     s.fbo.unbind();
 
     ImGui::Image((ImTextureID)(intptr_t)s.fbo.texture(), avail, ImVec2(0, 1), ImVec2(1, 0));
+    const ImVec2 imgMin = ImGui::GetItemRectMin();
 
-    if (ImGui::IsItemHovered()) {
+    // Datum gizmo (overlaid in screen space using the same camera matrices).
+    bool gizmoUsing = false;
+    if (s.showGizmo && (s.hasResult || s.userEdited)) {
+      ImGuizmo::SetOrthographic(false);
+      ImGuizmo::SetDrawlist();
+      ImGuizmo::SetRect(imgMin.x, imgMin.y, avail.x, avail.y);
+      Eigen::Matrix4f model = s.modelF();
+      Eigen::Matrix4f v = view, p = proj;
+      const ImGuizmo::OPERATION op =
+          s.gizmoOp == 1 ? ImGuizmo::TRANSLATE : ImGuizmo::ROTATE;
+      if (ImGuizmo::Manipulate(v.data(), p.data(), op, ImGuizmo::WORLD, model.data())) {
+        s.setUserTransform(model.cast<double>());
+      }
+      gizmoUsing = ImGuizmo::IsUsing();
+    }
+
+    if (ImGui::IsItemHovered() && !gizmoUsing) {
       ImGuiIO& io = ImGui::GetIO();
-      if (ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+      const bool picking = s.pickMode != AppState::PickMode::None;
+      if (picking && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        // build a world-space ray from the cursor, then map into part space
+        const float ndcx = (io.MousePos.x - imgMin.x) / avail.x * 2.0f - 1.0f;
+        const float ndcy = 1.0f - (io.MousePos.y - imgMin.y) / avail.y * 2.0f;
+        const Eigen::Matrix4f invVP = (proj * view).inverse();
+        Eigen::Vector4f nh = invVP * Eigen::Vector4f(ndcx, ndcy, -1.0f, 1.0f);
+        Eigen::Vector4f fh = invVP * Eigen::Vector4f(ndcx, ndcy, 1.0f, 1.0f);
+        const Eigen::Vector3f nw = nh.head<3>() / nh.w();
+        const Eigen::Vector3f fw = fh.head<3>() / fh.w();
+        const Eigen::Vector3f dW = (fw - nw).normalized();
+        const Eigen::Matrix4d invModel = s.currentTransform().inverse();
+        const Eigen::Vector3d oP =
+            (invModel * Eigen::Vector4d(nw.x(), nw.y(), nw.z(), 1.0)).head<3>();
+        const Eigen::Vector3d dP = invModel.topLeftCorner<3, 3>() * dW.cast<double>();
+        s.pickRay(oP, dP);
+      } else if (!picking && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
         s.camera.orbit(io.MouseDelta.x, io.MouseDelta.y);
-      else if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle) ||
-               ImGui::IsMouseDragging(ImGuiMouseButton_Right))
+      } else if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle) ||
+                 ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
         s.camera.pan(io.MouseDelta.x, io.MouseDelta.y);
+      }
       if (io.MouseWheel != 0.0f) s.camera.dolly(io.MouseWheel);
     }
+    if (s.pickMode != AppState::PickMode::None && ImGui::IsKeyPressed(ImGuiKey_Escape))
+      s.cancelPick();
   }
   ImGui::End();
 }
