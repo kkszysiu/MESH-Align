@@ -1,0 +1,43 @@
+# ---- Build / CMake ----------------------------------------------------------
+/build/
+/build-*/
+/out/
+/cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+*.app/
+
+# ---- CPM dependency cache ---------------------------------------------------
+/.cpm/
+/_deps/
+
+# ---- Tooling / IDE ----------------------------------------------------------
+compile_commands.json
+.cache/
+.clangd/
+*.user
+.vscode/
+.idea/
+.vs/
+*.swp
+
+# ---- App runtime / scratch --------------------------------------------------
+imgui.ini
+# generated mesh test artifacts (round-trip outputs)
+rt_box.*
+
+# ---- OS ---------------------------------------------------------------------
+.DS_Store
+Thumbs.db
