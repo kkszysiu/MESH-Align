@@ -14,3 +14,7 @@ add_test(NAME analysis_tests COMMAND analysis_tests)
 add_executable(picking_tests picking_tests.cpp)
 target_link_libraries(picking_tests PRIVATE meshalign_core)
 add_test(NAME picking_tests COMMAND picking_tests)
+
+add_executable(deviation_tests deviation_tests.cpp)
+target_link_libraries(deviation_tests PRIVATE meshalign_core)
+add_test(NAME deviation_tests COMMAND deviation_tests)

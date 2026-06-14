@@ -6,6 +6,7 @@ add_library(meshalign_render STATIC
   src/MeshRenderer.cpp
   src/TriadRenderer.cpp
   src/PlaneRenderer.cpp
+  src/Heatmap.cpp
 )
 add_library(meshalign::render ALIAS meshalign_render)
 

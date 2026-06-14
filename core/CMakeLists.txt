@@ -9,6 +9,8 @@ add_library(meshalign_core STATIC
   src/SymmetryDetector.cpp
   src/Orienter.cpp
   src/Picking.cpp
+  src/Bvh.cpp
+  src/Deviation.cpp
   src/AnalysisPipeline.cpp
   src/io/IO.cpp
   src/io/LoadSTL.cpp

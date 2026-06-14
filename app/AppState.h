@@ -1,15 +1,19 @@
 #pragma once
 #include "PipelineRunner.h"
 #include "ma/IO.h"
+#include "ma/Bvh.h"
 #include "ma/CylinderExtractor.h"
+#include "ma/Deviation.h"
 #include "ma/Geometry.h"
 #include "ma/Mesh.h"
 #include "ma/MeshValidation.h"
 #include "ma/Orienter.h"
 #include "ma/Picking.h"
 #include "ma/Types.h"
+#include "ma_gl/Heatmap.h"
 
 #include <Eigen/Geometry>
+#include <algorithm>
 #include <vector>
 #include "ma_gl/Camera.h"
 #include "ma_gl/Framebuffer.h"
@@ -51,6 +55,86 @@ struct AppState {
   // --- gizmo ---
   bool showGizmo = false;
   int gizmoOp = 0;  // 0 = rotate, 1 = translate
+
+  // --- deviation / heatmap ---
+  ma::Mesh reference;
+  bool hasReference = false;
+  ma::Bvh refBvh;
+  ma::DeviationField deviation;
+  bool hasDeviation = false;
+  bool showHeatmap = false;
+  int devMode = 0;  // 0 = vs reference (ICP), 1 = vs Top datum plane
+  ma::ToleranceBands bands;
+  Eigen::Matrix4d scanToRef = Eigen::Matrix4d::Identity();
+  float lutRange = 1.0f;
+  GLuint lutTex = 0;  // owned; created in main once GL is up
+
+  struct DevStats { int inTol = 0, warn = 0, out = 0; double pctIn = 0; };
+  DevStats deviationStats() const {
+    DevStats s;
+    for (Eigen::Index i = 0; i < deviation.signedDistMm.size(); ++i) {
+      const double a = std::abs(deviation.signedDistMm(i));
+      if (a <= bands.inTolMm) ++s.inTol;
+      else if (a <= bands.warnMm) ++s.warn;
+      else ++s.out;
+    }
+    const int n = static_cast<int>(deviation.signedDistMm.size());
+    s.pctIn = n ? 100.0 * s.inTol / n : 0.0;
+    return s;
+  }
+
+  void refreshLut() {
+    if (lutTex) ma::gl::updateBandLutTexture(lutTex, (float)bands.inTolMm, (float)bands.warnMm, lutRange);
+  }
+
+  bool loadReference(const std::string& path) {
+    try {
+      reference = ma::io::loadMesh(path);
+    } catch (const std::exception& e) {
+      logLine(std::string("Reference load failed: ") + e.what());
+      return false;
+    }
+    refBvh.build(reference);
+    hasReference = true;
+    logLine("Reference: " + reference.name + " (" + std::to_string(reference.numFaces()) + " tris)");
+    return true;
+  }
+
+  void runDeviation() {
+    if (mesh.empty()) { logLine("Load a mesh first"); return; }
+    if (devMode == 0) {
+      if (!hasReference) { logLine("Open a reference mesh first"); return; }
+      logLine("Best-fitting scan to reference (ICP)...");
+      ma::IcpResult icp = ma::icpToReference(mesh, reference, refBvh);
+      scanToRef = icp.transform;
+      char b[96];
+      std::snprintf(b, sizeof(b), "ICP rms = %.3f mm (%d iters)", icp.rms, icp.iterations);
+      logLine(b);
+      deviation = ma::deviationToReference(mesh, reference, refBvh, scanToRef, bands);
+    } else {
+      // vs Top datum plane (fallback to symmetry plane)
+      Eigen::Vector3d pt = mesh.centroid(), n(0, 0, 1);
+      bool found = false;
+      for (const auto& p : result.planes)
+        if (p.role == ma::DatumRole::Top) { pt = p.point; n = p.normal; found = true; break; }
+      if (!found && !result.symmetry.empty()) { pt = result.symmetry[0].point; n = result.symmetry[0].normal; }
+      deviation = ma::deviationToPlane(mesh, pt, n, bands);
+    }
+    hasDeviation = true;
+    showHeatmap = true;
+
+    Eigen::VectorXf sc = deviation.signedDistMm.cast<float>();
+    meshRenderer.uploadScalars(sc);
+    lutRange = std::max({(float)std::abs(deviation.minMm), (float)std::abs(deviation.maxMm),
+                         (float)bands.warnMm * 1.5f, 1e-3f});
+    refreshLut();
+
+    DevStats st = deviationStats();
+    char b[128];
+    std::snprintf(b, sizeof(b), "Deviation: %.3f..%.3f mm, %.0f%% in tolerance", deviation.minMm,
+                  deviation.maxMm, st.pctIn);
+    logLine(b);
+  }
 
   // --- interactive picking ---
   enum class PickMode { None, ThreePoint, Hole };
@@ -249,6 +333,8 @@ struct AppState {
     hasResult = false;  // back to identity pose
     userEdited = false;
     topoValid = false;  // rebuild adjacency for the new mesh on demand
+    hasDeviation = false;
+    showHeatmap = false;
     cancelPick();
     frameMesh();
     logLine("Loaded " + mesh.name + "  (" + std::to_string(mesh.numFaces()) +

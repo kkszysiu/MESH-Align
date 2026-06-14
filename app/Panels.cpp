@@ -6,6 +6,8 @@
 #include <ImGuizmo.h>
 #include <portable-file-dialogs.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 namespace ma::ui {
@@ -36,12 +38,51 @@ void exportTransformDialog(AppState& s) {
   auto path = pfd::save_file("Export transform", "transform.txt", {"Text", "*.txt"}).result();
   if (!path.empty()) s.exportTransform(path);
 }
+
+void openReferenceDialog(AppState& s) {
+  auto sel = pfd::open_file("Open reference mesh", ".",
+                            {"Meshes (.stl .obj .ply)", "*.stl *.obj *.ply", "All", "*"})
+                 .result();
+  if (!sel.empty()) s.loadReference(sel[0]);
+}
+
+// Vertical tolerance-band scalar bar drawn as an overlay over the viewport.
+void drawScalarBar(AppState& s, const ImVec2& imgMin, const ImVec2& avail) {
+  if (!s.showHeatmap || !s.hasDeviation) return;
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  const float barW = 16.0f, barH = std::min(260.0f, avail.y - 90.0f);
+  const float x = imgMin.x + avail.x - 84.0f;
+  const float y = imgMin.y + 40.0f;
+  const float range = s.lutRange;
+  const int steps = 64;
+  for (int i = 0; i < steps; ++i) {
+    const float t0 = (float)i / steps, t1 = (float)(i + 1) / steps;
+    const float v = range - 2.0f * range * (t0 + t1) * 0.5f;  // top=+range
+    const Eigen::Vector4f c = ma::gl::bandColor(v, (float)s.bands.inTolMm, (float)s.bands.warnMm);
+    const ImU32 col = IM_COL32((int)(c.x() * 255), (int)(c.y() * 255), (int)(c.z() * 255), 255);
+    dl->AddRectFilled(ImVec2(x, y + barH * t0), ImVec2(x + barW, y + barH * t1), col);
+  }
+  dl->AddRect(ImVec2(x, y), ImVec2(x + barW, y + barH), IM_COL32(20, 20, 20, 255));
+  auto label = [&](float v, const char* fmt) {
+    const float tt = (range - v) / (2.0f * range);
+    char buf[24];
+    std::snprintf(buf, sizeof(buf), fmt, v);
+    dl->AddText(ImVec2(x + barW + 4, y + barH * tt - 7), IM_COL32(230, 230, 230, 255), buf);
+  };
+  label(range, "+%.2f");
+  label((float)s.bands.warnMm, "+%.2f");
+  label(0.0f, " %.2f");
+  label(-(float)s.bands.warnMm, "%.2f");
+  label(-range, "%.2f");
+  dl->AddText(ImVec2(x - 4, y - 18), IM_COL32(230, 230, 230, 255), "mm");
+}
 }  // namespace
 
 void drawMenuBar(AppState& s) {
   if (ImGui::BeginMainMenuBar()) {
     if (ImGui::BeginMenu("File")) {
       if (ImGui::MenuItem("Open Mesh...", "Ctrl+O")) openMeshDialog(s);
+      if (ImGui::MenuItem("Open Reference...", nullptr)) openReferenceDialog(s);
       if (ImGui::MenuItem("Export Aligned Mesh...", "Ctrl+E", false, !s.mesh.empty()))
         exportMeshDialog(s);
       if (ImGui::MenuItem("Export Transform...", nullptr, false, !s.mesh.empty()))
@@ -227,6 +268,37 @@ void drawRightPanel(AppState& s) {
     }
   }
 
+  if (ImGui::CollapsingHeader("Deviation", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::Button("Open Reference...", ImVec2(-FLT_MIN, 0))) openReferenceDialog(s);
+    ImGui::TextDisabled("ref: %s", s.hasReference ? s.reference.name.c_str() : "(none)");
+
+    ImGui::RadioButton("vs Reference (ICP)", &s.devMode, 0);
+    ImGui::RadioButton("vs Top datum plane", &s.devMode, 1);
+
+    float inT = (float)s.bands.inTolMm, wr = (float)s.bands.warnMm;
+    ImGui::SetNextItemWidth(110);
+    if (ImGui::DragFloat("in-tol (mm)", &inT, 0.005f, 0.001f, wr, "%.3f")) {
+      s.bands.inTolMm = inT;
+      s.refreshLut();
+    }
+    ImGui::SetNextItemWidth(110);
+    if (ImGui::DragFloat("warn (mm)", &wr, 0.01f, std::max(inT, 0.002f), 100.0f, "%.3f")) {
+      s.bands.warnMm = wr;
+      s.refreshLut();
+    }
+
+    ImGui::BeginDisabled(s.mesh.empty() || (s.devMode == 0 && !s.hasReference));
+    if (ImGui::Button("Run Deviation", ImVec2(-FLT_MIN, 0))) s.runDeviation();
+    ImGui::EndDisabled();
+    if (s.hasDeviation) {
+      ImGui::Checkbox("Show heatmap", &s.showHeatmap);
+      auto st = s.deviationStats();
+      ImGui::Text("range: %.3f .. %.3f mm", s.deviation.minMm, s.deviation.maxMm);
+      ImGui::TextColored(ImVec4(0.4f, 0.85f, 0.4f, 1), "%.0f%% in tolerance", st.pctIn);
+      ImGui::TextDisabled("warn %d  out %d", st.warn, st.out);
+    }
+  }
+
   if (ImGui::CollapsingHeader("Nudge Datum", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::BeginDisabled(!s.hasResult && !s.userEdited);
     ImGui::Checkbox("Gizmo", &s.showGizmo);
@@ -277,7 +349,10 @@ void drawViewport(AppState& s) {
 
     const Eigen::Matrix4f view = s.camera.view();
     const Eigen::Matrix4f proj = s.camera.proj();
-    s.meshRenderer.draw(view, proj, s.modelF(), s.partColor);
+    if (s.showHeatmap && s.meshRenderer.hasScalars())
+      s.meshRenderer.drawHeatmap(view, proj, s.modelF(), -s.lutRange, s.lutRange, s.lutTex);
+    else
+      s.meshRenderer.draw(view, proj, s.modelF(), s.partColor);
 
     // Datum planes (only meaningful once aligned): world XY/XZ/YZ through origin.
     if (s.hasResult && s.showDatums) {
@@ -313,6 +388,7 @@ void drawViewport(AppState& s) {
 
     ImGui::Image((ImTextureID)(intptr_t)s.fbo.texture(), avail, ImVec2(0, 1), ImVec2(1, 0));
     const ImVec2 imgMin = ImGui::GetItemRectMin();
+    drawScalarBar(s, imgMin, avail);
 
     // Datum gizmo (overlaid in screen space using the same camera matrices).
     bool gizmoUsing = false;

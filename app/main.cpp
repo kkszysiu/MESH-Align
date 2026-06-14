@@ -50,10 +50,14 @@ void buildDefaultLayout(ImGuiID dockspaceId) {
 
 int main(int argc, char** argv) {
   const char* startupMesh = nullptr;
+  const char* refMesh = nullptr;
   bool autoAnalyze = false;
+  bool autoDeviation = false;
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
     if (a == "--analyze") autoAnalyze = true;
+    else if (a == "--deviation") autoDeviation = true;
+    else if (a == "--ref" && i + 1 < argc) refMesh = argv[++i];
     else if (a.rfind("--", 0) != 0 && !startupMesh) startupMesh = argv[i];
   }
   glfwSetErrorCallback(glfwErrorCallback);
@@ -105,6 +109,8 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "Renderer init failed\n");
     return 1;
   }
+  app.lutTex = ma::gl::makeBandLutTexture();
+  app.refreshLut();
   glfwSetWindowUserPointer(window, &app);
   glfwSetDropCallback(window, dropCallback);
 
@@ -119,7 +125,9 @@ int main(int argc, char** argv) {
     app.frameMesh();
     app.logLine("MESH-Align M2 - drop a mesh, then Run Analysis");
   }
+  if (refMesh) app.loadReference(refMesh);
   if (autoAnalyze) app.runAnalysis();
+  if (autoDeviation) app.runDeviation();
 
   bool layoutBuilt = false;
   while (!glfwWindowShouldClose(window)) {

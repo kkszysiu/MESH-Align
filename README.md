@@ -8,14 +8,15 @@ a scan against nominal.
 See [`docs/PLAN.md`](docs/PLAN.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
 and [`docs/ALGORITHMS.md`](docs/ALGORITHMS.md) for the full design.
 
-> Status: **M3 — manual datum tools.** Everything from M2 plus full manual
-> override: reassign any detected plane to Top/Front/Right, **3-point plane**
-> picking, **click-a-hole cylinder** fit (ray-cast → smooth-region grow →
-> local RANSAC), nudge (per-axis rotate / flip), and an **ImGuizmo** rotate/
-> move gizmo on the datum frame. "Revert to Auto" restores the auto result.
-> The deviation heatmap (M4) follows.
+> Status: **M4 — deviation heatmap.** Everything from M3 plus scan-vs-nominal
+> inspection: load a reference mesh, **best-fit ICP** (PCA init + point-to-
+> plane), per-vertex **signed-distance** colouring via a tolerance-band LUT
+> shader, a mm **scalar color bar**, live in-tol/warn sliders, and an
+> in-tolerance % readout. Also supports deviation **vs a fitted datum plane**
+> (no reference needed). Backed by an internal BVH for closest-point queries.
 >
-> Run analysis on startup with the `--analyze` flag.
+> CLI flags: `--analyze` (auto-orient on load), `--ref <file> --deviation`
+> (load nominal + run deviation).
 >
 > Note: PLY export is binary little-endian; ASCII PLY input is handled by a
 > small built-in reader (tinyply 2.3.4's ASCII path is unreliable).
