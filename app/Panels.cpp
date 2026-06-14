@@ -15,35 +15,28 @@ namespace ma::ui {
 using ma::gl::Camera;
 
 namespace {
+const std::vector<std::string> kMeshFilter = {"Meshes (.stl .obj .ply)", "*.stl *.obj *.ply",
+                                              "All files", "*"};
+const std::vector<std::string> kSaveFilter = {"STL", "*.stl", "OBJ", "*.obj", "PLY", "*.ply"};
+
 void openMeshDialog(AppState& s) {
-  auto sel = pfd::open_file("Open mesh", ".",
-                            {"Meshes (.stl .obj .ply)", "*.stl *.obj *.ply",
-                             "All files", "*"})
-                 .result();
-  if (!sel.empty()) s.loadMeshFile(sel[0]);
+  s.beginOpen("Open mesh", kMeshFilter, [&s](const std::string& p) { s.loadMeshFile(p); });
 }
 
 void exportMeshDialog(AppState& s) {
-  if (s.mesh.empty()) {
-    s.logLine("Nothing to export");
-    return;
-  }
-  auto path = pfd::save_file("Export aligned mesh", "aligned.stl",
-                             {"STL", "*.stl", "OBJ", "*.obj", "PLY", "*.ply"})
-                  .result();
-  if (!path.empty()) s.exportAlignedMesh(path);
+  if (s.mesh.empty()) { s.logLine("Nothing to export"); return; }
+  s.beginSave("Export aligned mesh (type .stl/.obj/.ply)", kSaveFilter,
+              [&s](const std::string& p) { s.exportAlignedMesh(p); });
 }
 
 void exportTransformDialog(AppState& s) {
-  auto path = pfd::save_file("Export transform", "transform.txt", {"Text", "*.txt"}).result();
-  if (!path.empty()) s.exportTransform(path);
+  s.beginSave("Export transform (.txt)", {"Text", "*.txt"},
+              [&s](const std::string& p) { s.exportTransform(p); });
 }
 
 void openReferenceDialog(AppState& s) {
-  auto sel = pfd::open_file("Open reference mesh", ".",
-                            {"Meshes (.stl .obj .ply)", "*.stl *.obj *.ply", "All", "*"})
-                 .result();
-  if (!sel.empty()) s.loadReference(sel[0]);
+  s.beginOpen("Open reference mesh", kMeshFilter,
+              [&s](const std::string& p) { s.loadReference(p); });
 }
 
 // Vertical tolerance-band scalar bar drawn as an overlay over the viewport.
@@ -88,7 +81,7 @@ void drawMenuBar(AppState& s) {
       if (ImGui::MenuItem("Export Transform...", nullptr, false, !s.mesh.empty()))
         exportTransformDialog(s);
       ImGui::Separator();
-      if (ImGui::MenuItem("Quit", "Ctrl+Q")) s.logLine("Quit requested");
+      if (ImGui::MenuItem("Quit", "Ctrl+Q")) s.wantQuit = true;
       ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Edit")) {

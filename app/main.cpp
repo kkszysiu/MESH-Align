@@ -137,6 +137,9 @@ int main(int argc, char** argv) {
     ma::AnalysisResult pending;
     if (app.pipeline.poll(pending)) app.applyResult(std::move(pending));
 
+    // Resolve any open native file dialog without blocking the render loop.
+    app.pollDialogs();
+
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
@@ -152,6 +155,12 @@ int main(int argc, char** argv) {
     ma::ui::drawLeftPanel(app);
     ma::ui::drawRightPanel(app);
     ma::ui::drawViewport(app);
+
+    // Quit via menu or Ctrl/Cmd+Q.
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Q) ||
+        ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_Q))
+      app.wantQuit = true;
+    if (app.wantQuit) glfwSetWindowShouldClose(window, GLFW_TRUE);
 
     ImGui::Render();
     int fbw, fbh;

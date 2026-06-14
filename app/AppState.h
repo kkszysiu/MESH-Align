@@ -12,8 +12,12 @@
 #include "ma/Types.h"
 #include "ma_gl/Heatmap.h"
 
+#include <portable-file-dialogs.h>
+
 #include <Eigen/Geometry>
 #include <algorithm>
+#include <functional>
+#include <memory>
 #include <vector>
 #include "ma_gl/Camera.h"
 #include "ma_gl/Framebuffer.h"
@@ -51,6 +55,9 @@ struct AppState {
   // --- analysis ---
   PipelineRunner pipeline;
   bool showDatums = true;
+
+  // --- app lifecycle ---
+  bool wantQuit = false;
 
   // --- gizmo ---
   bool showGizmo = false;
@@ -343,7 +350,11 @@ struct AppState {
     return true;
   }
 
-  bool exportAlignedMesh(const std::string& path) {
+  bool exportAlignedMesh(const std::string& pathIn) {
+    // The native save panel may not append an extension; default to .stl.
+    std::string path = pathIn;
+    const std::string ext = ma::io::extensionOf(path);
+    if (ext != "stl" && ext != "obj" && ext != "ply") path += ".stl";
     try {
       ma::io::saveMesh(path, ma::io::transformed(mesh, currentTransform()));
     } catch (const std::exception& e) {
@@ -354,7 +365,9 @@ struct AppState {
     return true;
   }
 
-  bool exportTransform(const std::string& path) {
+  bool exportTransform(const std::string& pathIn) {
+    std::string path = pathIn;
+    if (ma::io::extensionOf(path) != "txt") path += ".txt";
     try {
       ma::io::saveTransform(path, currentTransform());
     } catch (const std::exception& e) {
@@ -363,6 +376,45 @@ struct AppState {
     }
     logLine("Exported transform -> " + path);
     return true;
+  }
+
+  // ---- non-blocking native file dialogs ----
+  // Blocking pfd calls freeze the render loop and the dialog ends up stuck
+  // behind the (frozen, on-top) GL window. Instead we kick off the dialog and
+  // poll it each frame, running the callback when the user responds.
+  std::unique_ptr<pfd::open_file> openDlg_;
+  std::unique_ptr<pfd::save_file> saveDlg_;
+  std::function<void(const std::string&)> onPath_;
+
+  bool dialogOpen() const { return openDlg_ || saveDlg_; }
+
+  void beginOpen(const std::string& title, const std::vector<std::string>& filters,
+                 std::function<void(const std::string&)> cb) {
+    if (dialogOpen()) return;
+    // NOTE: pfd's default-path arg is a *folder*; passing a filename (or ".")
+    // makes osascript error out and no dialog appears. Empty -> platform default.
+    openDlg_ = std::make_unique<pfd::open_file>(title, std::string(), filters);
+    onPath_ = std::move(cb);
+  }
+  void beginSave(const std::string& title, const std::vector<std::string>& filters,
+                 std::function<void(const std::string&)> cb) {
+    if (dialogOpen()) return;
+    saveDlg_ = std::make_unique<pfd::save_file>(title, std::string(), filters);
+    onPath_ = std::move(cb);
+  }
+  void pollDialogs() {
+    if (openDlg_ && openDlg_->ready(0)) {
+      const auto res = openDlg_->result();
+      openDlg_.reset();
+      if (!res.empty() && onPath_) onPath_(res[0]);
+      onPath_ = nullptr;
+    }
+    if (saveDlg_ && saveDlg_->ready(0)) {
+      const auto res = saveDlg_->result();
+      saveDlg_.reset();
+      if (!res.empty() && onPath_) onPath_(res);
+      onPath_ = nullptr;
+    }
   }
 
   // Frame the current mesh in the viewport.
