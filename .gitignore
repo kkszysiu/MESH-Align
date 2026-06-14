@@ -38,6 +38,11 @@ imgui.ini
 # generated mesh test artifacts (round-trip outputs)
 rt_box.*
 
+# ---- Release packaging staging / archives -----------------------------------
+/dist/
+*.tar.gz
+*.zip
+
 # ---- OS ---------------------------------------------------------------------
 .DS_Store
 Thumbs.db
