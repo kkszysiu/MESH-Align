@@ -24,7 +24,7 @@ target_include_directories(tinyobjloader SYSTEM INTERFACE "${tinyobjloader_SOURC
 CPMAddPackage(
   NAME tinyply
   GITHUB_REPOSITORY ddiakopoulos/tinyply
-  GIT_TAG 2.3.4
+  GIT_TAG 3.0   # 3.0 fixed the ASCII reader (2.3.4's was broken)
   DOWNLOAD_ONLY YES
 )
 add_library(tinyply INTERFACE)

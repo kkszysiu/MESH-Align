@@ -108,7 +108,6 @@ git tag v0.1.0 && git push origin v0.1.0
 
 ## Notes
 
-- PLY export is binary little-endian; ASCII PLY input uses a small built-in
-  reader (tinyply 2.3.4's ASCII path is unreliable).
+- PLY: read (ASCII + binary) via tinyply 3.0; export is binary little-endian.
 - ICP/deviation currently run synchronously on the click; large scans may pause
   briefly while computing.

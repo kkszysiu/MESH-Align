@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <fstream>
 #include <string>
 
 static int g_failures = 0;
@@ -49,13 +50,28 @@ int main() {
     CHECK(dimsMatch(box, r, 1e-3));
   }
 
-  // --- PLY round trip ---
+  // --- PLY round trip (binary writer + tinyply reader) ---
   {
     const std::string p = "rt_box.ply";
     ma::io::saveMesh(p, box);
     ma::Mesh r = ma::io::loadMesh(p);
     CHECK(r.numFaces() == 12);
     CHECK(dimsMatch(box, r, 1e-3));
+  }
+
+  // --- ASCII PLY read (tinyply 3.0; 2.3.4's ASCII path was broken) ---
+  {
+    const std::string p = "rt_ascii.ply";
+    {
+      std::ofstream f(p);
+      f << "ply\nformat ascii 1.0\nelement vertex 3\n"
+        << "property float x\nproperty float y\nproperty float z\n"
+        << "element face 1\nproperty list uchar int vertex_indices\nend_header\n"
+        << "0 0 0\n10 0 0\n0 20 0\n3 0 1 2\n";
+    }
+    ma::Mesh r = ma::io::loadMesh(p);
+    CHECK(r.numVertices() == 3);
+    CHECK(r.numFaces() == 1);
   }
 
   // --- transform application ---

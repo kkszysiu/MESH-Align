@@ -19,7 +19,7 @@ ctest --test-dir build --output-on-failure       # 5 headless suites must stay g
 - Eigen: `cross` needs `<Eigen/Geometry>`, `inverse()` needs `<Eigen/LU>` (link
   fails, not compile).
 - Include GL only via `ma_gl/GL.h` (macOS framework vs glad).
-- PLY: write binary; ASCII goes through our own reader (tinyply ASCII is broken).
+- PLY: read via tinyply 3.0 (ASCII + binary); writer emits binary little-endian.
 - pfd default path is a folder — pass empty, and dialogs are non-blocking.
 - GL only on the main thread; analysis runs on a worker.
 - After changing the analysis pipeline, update `docs/ALGORITHMS.md` and run `ctest`.

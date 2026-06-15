@@ -72,9 +72,10 @@ put it in `core` and call it; never reach the other way.
 - **OpenGL loading**: macOS links the system GL framework (`<OpenGL/gl3.h>`, no
   loader); other platforms use glad (`<glad/gl.h>`). Always include via
   `ma_gl/GL.h`, never a GL header directly.
-- **tinyply 2.3.4's ASCII reader is broken.** We write **binary** PLY and have a
-  hand-rolled ASCII PLY reader in `core/src/io/LoadPLY.cpp`. Don't route ASCII PLY
-  through tinyply.
+- **PLY:** uses **tinyply 3.0** (its ASCII reader works; 2.3.4's was broken — don't
+  downgrade). We read both ASCII and binary via tinyply; our writer emits binary
+  little-endian (`savePLYBinary` in `core/src/io/LoadPLY.cpp`). Face lists are
+  assumed triangulated (list hint 3).
 - **portable-file-dialogs**: the default-path arg is a **folder**. Passing a
   filename or `"."` makes the backend error and show nothing — pass an empty
   string (platform default) or a real directory. Dialogs are **non-blocking**
