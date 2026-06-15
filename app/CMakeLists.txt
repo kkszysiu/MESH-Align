@@ -41,6 +41,15 @@ if(APPLE)
     MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
     MACOSX_BUNDLE_ICON_FILE "icon.icns")
+
+  # The linker only applies an ad-hoc signature to the inner binary; the *bundle*
+  # is left unsealed (Info.plist not bound, no _CodeSignature), which macOS reports
+  # as "damaged". Ad-hoc sign the whole bundle so it opens. (Distribution without a
+  # Gatekeeper prompt still needs a Developer ID signature + notarization.)
+  add_custom_command(TARGET meshalign POST_BUILD
+    COMMAND codesign --force --sign - "$<TARGET_BUNDLE_DIR:meshalign>"
+    VERBATIM
+    COMMENT "Ad-hoc code-signing meshalign.app")
 endif()
 
 # ---- Linux: install icon + .desktop for desktop integration ----------------
