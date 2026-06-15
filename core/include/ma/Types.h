@@ -17,13 +17,16 @@ struct DetectedPlane {
   double area = 0.0;            // mm^2 of inlier faces
   std::vector<int> inlierFaces;
   DatumRole role = DatumRole::None;
-  std::string label;           // e.g. "Primary face"
+  std::string label;               // e.g. "Face 0"
+  std::string tier = "Candidate";  // Primary / Secondary / Tertiary / Candidate
+  std::string source = "feature";  // how derived: face / symmetry / bore-seat / pca ...
 };
 
 struct DetectedCylinder {
   Eigen::Vector3d axisPoint{0, 0, 0};
   Eigen::Vector3d axisDir{0, 0, 1};
   double radius = 0.0;
+  double length = 0.0;  // axial extent of the inlier region
   double confidence = 0.0;
   std::vector<int> inlierFaces;
   std::string label;
@@ -38,6 +41,7 @@ struct SymmetryPlane {
 struct OrientationResult {
   Eigen::Matrix4d transform = Eigen::Matrix4d::Identity();  // part -> datum frame
   Eigen::Vector3d eulerXYZ_deg{0, 0, 0};                    // display only
+  Eigen::Vector3d pcaRatio{1, 1, 1};                        // shape elongation (largest:mid:1)
   double confidence = 0.0;
   std::string method;                                       // winning cue(s)
   int topPlaneId = -1, frontPlaneId = -1, rightPlaneId = -1;

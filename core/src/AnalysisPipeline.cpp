@@ -7,6 +7,8 @@
 #include "ma/PlaneExtractor.h"
 #include "ma/SymmetryDetector.h"
 
+#include <cmath>
+
 namespace ma {
 
 namespace {
@@ -56,6 +58,17 @@ AnalysisResult analyze(const Mesh& mesh, const ProgressFn& progress,
 
   report(progress, Stage::Orientation, 0.90f, "Assigning datums");
   result.orientation = orient(mesh, result.planes, result.cylinders, sym);
+
+  // Classify candidate flats that sit concentric with a bore as "bore-seat".
+  for (auto& p : result.planes) {
+    if (p.role != DatumRole::None) continue;  // keep datum tiers
+    for (const auto& c : result.cylinders) {
+      if (std::abs(p.normal.normalized().dot(c.axisDir)) < 0.9) continue;  // not face-on
+      const Eigen::Vector3d w = p.point - c.axisPoint;
+      const Eigen::Vector3d radial = w - w.dot(c.axisDir) * c.axisDir;
+      if (radial.norm() < 2.0 * c.radius) { p.source = "bore-seat"; break; }
+    }
+  }
 
   report(progress, Stage::Done, 1.0f, "Done");
   return result;

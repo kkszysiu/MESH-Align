@@ -45,6 +45,14 @@ struct AppState {
   Eigen::Matrix4d userTransform = Eigen::Matrix4d::Identity();
   bool userEdited = false;
 
+  // --- per-datum adjustment (live preview, committed on Apply) ---
+  int editRow = -1;          // expanded detected-plane row (-1 = none)
+  int adjAxis = 2;           // 0=X 1=Y 2=Z datum axis to rotate about / offset along
+  float adjAngleDeg = 0.0f;  // pending rotation about the datum axis (through origin)
+  float adjOffset = 0.0f;    // pending translation along the datum axis (mm)
+  std::vector<ma::PlaneResidual> planeResiduals;  // per detected-plane (lazy)
+  bool residualsValid = false;
+
   // --- rendering ---
   ma::gl::Camera camera;
   ma::gl::Framebuffer fbo;
@@ -74,24 +82,36 @@ struct AppState {
   ma::ToleranceBands bands;
   Eigen::Matrix4d scanToRef = Eigen::Matrix4d::Identity();
   float lutRange = 1.0f;
+  bool autoRange = true;
+  float autoRangeValue = 1.0f;  // data-driven range from the last run
+  float manualRange = 1.0f;     // used when autoRange is off
   GLuint lutTex = 0;  // owned; created in main once GL is up
 
-  struct DevStats { int inTol = 0, warn = 0, out = 0; double pctIn = 0; };
+  void applyRange() {
+    lutRange = autoRange ? autoRangeValue : std::max(manualRange, 1e-3f);
+    refreshLut();
+  }
+
+  struct DevStats { int inTol = 0, warn = 0, out = 0; double pctIn = 0, rms = 0; };
   DevStats deviationStats() const {
     DevStats s;
+    double sse = 0;
     for (Eigen::Index i = 0; i < deviation.signedDistMm.size(); ++i) {
-      const double a = std::abs(deviation.signedDistMm(i));
+      const double d = deviation.signedDistMm(i);
+      const double a = std::abs(d);
+      sse += d * d;
       if (a <= bands.inTolMm) ++s.inTol;
       else if (a <= bands.warnMm) ++s.warn;
       else ++s.out;
     }
     const int n = static_cast<int>(deviation.signedDistMm.size());
     s.pctIn = n ? 100.0 * s.inTol / n : 0.0;
+    s.rms = n ? std::sqrt(sse / n) : 0.0;
     return s;
   }
 
   void refreshLut() {
-    if (lutTex) ma::gl::updateBandLutTexture(lutTex, (float)bands.inTolMm, (float)bands.warnMm, lutRange);
+    if (lutTex) ma::gl::updateBandLutTexture(lutTex, (float)bands.inTolMm, lutRange);
   }
 
   bool loadReference(const std::string& path) {
@@ -132,14 +152,14 @@ struct AppState {
 
     Eigen::VectorXf sc = deviation.signedDistMm.cast<float>();
     meshRenderer.uploadScalars(sc);
-    lutRange = std::max({(float)std::abs(deviation.minMm), (float)std::abs(deviation.maxMm),
-                         (float)bands.warnMm * 1.5f, 1e-3f});
-    refreshLut();
+    autoRangeValue = std::max({(float)std::abs(deviation.minMm), (float)std::abs(deviation.maxMm),
+                               (float)bands.inTolMm * 2.0f, 1e-3f});
+    applyRange();
 
     DevStats st = deviationStats();
-    char b[128];
-    std::snprintf(b, sizeof(b), "Deviation: %.3f..%.3f mm, %.0f%% in tolerance", deviation.minMm,
-                  deviation.maxMm, st.pctIn);
+    char b[160];
+    std::snprintf(b, sizeof(b), "Deviation: %.3f..%.3f mm, RMS %.3f, %.0f%% in tolerance",
+                  deviation.minMm, deviation.maxMm, st.rms, st.pctIn);
     logLine(b);
   }
 
@@ -177,12 +197,37 @@ struct AppState {
     while (log.size() > 200) log.pop_front();
   }
 
-  // Current part->datum transform (identity until analysis/manual edits).
+  // Committed part->datum transform (identity until analysis/manual edits).
   Eigen::Matrix4d currentTransform() const {
     if (userEdited) return userTransform;
     return hasResult ? result.orientation.transform : Eigen::Matrix4d::Identity();
   }
-  Eigen::Matrix4f modelF() const { return currentTransform().cast<float>(); }
+
+  // Pending (un-applied) adjustment about a datum axis through the origin.
+  Eigen::Matrix4d pendingDelta() const {
+    Eigen::Matrix4d M = Eigen::Matrix4d::Identity();
+    if (adjAngleDeg == 0.0f && adjOffset == 0.0f) return M;
+    Eigen::Vector3d e = Eigen::Vector3d::Unit(adjAxis);
+    M.topLeftCorner<3, 3>() =
+        Eigen::AngleAxisd(adjAngleDeg * 3.14159265358979323846 / 180.0, e).toRotationMatrix();
+    M.topRightCorner<3, 1>() = e * adjOffset;
+    return M;
+  }
+  // What the viewport shows / picking uses: committed pose + live preview.
+  Eigen::Matrix4d previewTransform() const { return pendingDelta() * currentTransform(); }
+  Eigen::Matrix4f modelF() const { return previewTransform().cast<float>(); }
+
+  void clearPending() { adjAngleDeg = 0.0f; adjOffset = 0.0f; }
+
+  void applyAdjustment() {
+    if (adjAngleDeg == 0.0f && adjOffset == 0.0f) return;
+    userTransform = previewTransform();
+    userEdited = true;
+    clearPending();
+    logLine("Applied datum adjustment");
+    frameAligned();
+  }
+  void resetAdjustment() { clearPending(); }
 
   // Decompose the current transform into part-space datum axes + origin.
   void currentFrame(Eigen::Vector3d& X, Eigen::Vector3d& Y, Eigen::Vector3d& Z,
@@ -207,6 +252,7 @@ struct AppState {
     auto r = ma::orientFromAxes(mesh, Zh, Xh, origin, "manual: " + which + " datum", 1.0);
     userTransform = r.transform;
     userEdited = true;
+    clearPending();
     logLine("Assigned " + which + " datum");
     frameAligned();
   }
@@ -219,11 +265,26 @@ struct AppState {
             .toRotationMatrix();
     userTransform = M * currentTransform();
     userEdited = true;
+    clearPending();
   }
 
   void setUserTransform(const Eigen::Matrix4d& T) {
     userTransform = T;
     userEdited = true;
+    clearPending();
+  }
+
+  // Lazily compute per-detected-plane flatness residuals (for the datum editor).
+  const ma::PlaneResidual& residualFor(size_t i) {
+    if (!residualsValid) {
+      planeResiduals.clear();
+      planeResiduals.reserve(result.planes.size());
+      for (const auto& p : result.planes)
+        planeResiduals.push_back(ma::planeResidual(mesh, p.point, p.normal, p.inlierFaces));
+      residualsValid = true;
+    }
+    static ma::PlaneResidual zero;
+    return i < planeResiduals.size() ? planeResiduals[i] : zero;
   }
 
   void startPick(PickMode mode, ma::DatumRole role) {
@@ -264,9 +325,10 @@ struct AppState {
       cp.minInliers = 8;
       auto cyls = ma::extractCylinders(mesh, faceData, skip, cp);
       if (cyls.empty()) { logLine("No cylinder found at that spot"); cancelPick(); return; }
+      result.cylinders.push_back(cyls[0]);  // surface it in the Detected list
       char buf[96];
-      std::snprintf(buf, sizeof(buf), "Fit cylinder r=%.2f from %zu faces", cyls[0].radius,
-                    region.size());
+      std::snprintf(buf, sizeof(buf), "Fit cylinder dia %.2f L %.2f from %zu faces",
+                    2.0 * cyls[0].radius, cyls[0].length, region.size());
       logLine(buf);
       assignDatum(pendingRole, cyls[0].axisDir);
       cancelPick();
@@ -287,6 +349,9 @@ struct AppState {
     result = std::move(r);
     hasResult = true;
     userEdited = false;  // start from the fresh auto result
+    clearPending();
+    residualsValid = false;
+    editRow = -1;
     const auto& o = result.orientation;
     logLine("Aligned: " + o.method);
     char buf[160];
@@ -302,6 +367,7 @@ struct AppState {
   void revertToAuto() {
     if (hasResult) {
       userEdited = false;
+      clearPending();
       logLine("Reverted to auto orientation");
       frameAligned();
     }
@@ -342,6 +408,9 @@ struct AppState {
     topoValid = false;  // rebuild adjacency for the new mesh on demand
     hasDeviation = false;
     showHeatmap = false;
+    clearPending();
+    residualsValid = false;
+    editRow = -1;
     cancelPick();
     frameMesh();
     logLine("Loaded " + mesh.name + "  (" + std::to_string(mesh.numFaces()) +

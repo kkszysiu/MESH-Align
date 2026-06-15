@@ -7,7 +7,6 @@
 #include <portable-file-dialogs.h>
 
 #include <algorithm>
-#include <cmath>
 #include <cstdio>
 
 namespace ma::ui {
@@ -51,7 +50,7 @@ void drawScalarBar(AppState& s, const ImVec2& imgMin, const ImVec2& avail) {
   for (int i = 0; i < steps; ++i) {
     const float t0 = (float)i / steps, t1 = (float)(i + 1) / steps;
     const float v = range - 2.0f * range * (t0 + t1) * 0.5f;  // top=+range
-    const Eigen::Vector4f c = ma::gl::bandColor(v, (float)s.bands.inTolMm, (float)s.bands.warnMm);
+    const Eigen::Vector4f c = ma::gl::bandColor(v, (float)s.bands.inTolMm, range);
     const ImU32 col = IM_COL32((int)(c.x() * 255), (int)(c.y() * 255), (int)(c.z() * 255), 255);
     dl->AddRectFilled(ImVec2(x, y + barH * t0), ImVec2(x + barW, y + barH * t1), col);
   }
@@ -160,11 +159,15 @@ void drawLeftPanel(AppState& s) {
 
   if (ImGui::CollapsingHeader("Orientation Result", ImGuiTreeNodeFlags_DefaultOpen)) {
     const auto& o = s.result.orientation;
-    ImGui::Text("Rotation X : %+.2f deg", s.hasResult ? o.eulerXYZ_deg.x() : 0.0);
-    ImGui::Text("Rotation Y : %+.2f deg", s.hasResult ? o.eulerXYZ_deg.y() : 0.0);
-    ImGui::Text("Rotation Z : %+.2f deg", s.hasResult ? o.eulerXYZ_deg.z() : 0.0);
+    // Reflect the live pose (auto, manual, or mid-adjustment preview).
+    const Eigen::Vector3d euler =
+        s.previewTransform().topLeftCorner<3, 3>().eulerAngles(0, 1, 2) * (180.0 / 3.14159265358979);
+    const bool edited = s.userEdited || s.adjAngleDeg != 0.0f || s.adjOffset != 0.0f;
+    ImGui::Text("Rotation X : %+.2f deg", s.hasResult || edited ? euler.x() : 0.0);
+    ImGui::Text("Rotation Y : %+.2f deg", s.hasResult || edited ? euler.y() : 0.0);
+    ImGui::Text("Rotation Z : %+.2f deg", s.hasResult || edited ? euler.z() : 0.0);
     ImGui::Text("Confidence : %.0f%%", s.hasResult ? o.confidence * 100.0 : 0.0);
-    ImGui::Text("Method     : %s", s.hasResult ? o.method.c_str() : "-");
+    ImGui::Text("Method     : %s", edited ? "manual" : (s.hasResult ? o.method.c_str() : "-"));
   }
 
   if (ImGui::CollapsingHeader("Log", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -198,6 +201,14 @@ void drawRightPanel(AppState& s) {
     if (s.result.planes.empty()) {
       ImGui::TextDisabled("No analysis yet");
     } else {
+      // header readouts: top-datum confidence + part PCA elongation
+      double topConf = 0.0;
+      for (const auto& pl : s.result.planes)
+        if (pl.role == ma::DatumRole::Top) { topConf = pl.confidence; break; }
+      ImGui::Text("%zu planes  |  Top confidence: %.0f%%", s.result.planes.size(), topConf * 100.0);
+      const auto& pr = s.result.orientation.pcaRatio;
+      ImGui::TextDisabled("PCA  %.1f : %.1f : %.1f", pr.x(), pr.y(), pr.z());
+      ImGui::Separator();
       auto roleName = [](ma::DatumRole r) {
         switch (r) {
           case ma::DatumRole::Top: return "Top";
@@ -208,21 +219,72 @@ void drawRightPanel(AppState& s) {
       };
       for (size_t i = 0; i < s.result.planes.size(); ++i) {
         const auto& p = s.result.planes[i];
-        ImGui::PushID(static_cast<int>(i));
-        ImGui::Text("Plane %2zu  %3.0f%%  [%s]", i, p.confidence * 100.0, roleName(p.role));
-        ImGui::SameLine();
-        if (ImGui::SmallButton("T")) s.assignDatum(ma::DatumRole::Top, p.normal);
-        ImGui::SameLine();
-        if (ImGui::SmallButton("F")) s.assignDatum(ma::DatumRole::Front, p.normal);
-        ImGui::SameLine();
-        if (ImGui::SmallButton("R")) s.assignDatum(ma::DatumRole::Right, p.normal);
+        const int row = static_cast<int>(i);
+        ImGui::PushID(row);
+        const bool isDatum = p.role != ma::DatumRole::None;
+
+        if (isDatum) {
+          // Expandable header: click to open the per-datum editor.
+          char hdr[96];
+          std::snprintf(hdr, sizeof(hdr), "%-5s  %s . %s  %3.0f%%", roleName(p.role),
+                        p.tier.c_str(), p.source.c_str(), p.confidence * 100.0);
+          if (ImGui::Selectable(hdr, s.editRow == row)) s.editRow = (s.editRow == row ? -1 : row);
+
+          if (s.editRow == row) {
+            ImGui::Indent(8.0f);
+            // rotate-about axis selector
+            ImGui::TextUnformatted("Rotate about");
+            ImGui::SameLine();
+            const char* ax[] = {"X", "Y", "Z"};
+            for (int a = 0; a < 3; ++a) {
+              if (a) ImGui::SameLine();
+              if (ImGui::RadioButton(ax[a], s.adjAxis == a)) s.adjAxis = a;
+            }
+            ImGui::SetNextItemWidth(120);
+            ImGui::DragFloat("Angle (deg)", &s.adjAngleDeg, 0.25f, -180.0f, 180.0f, "%.2f");
+            ImGui::SetNextItemWidth(120);
+            ImGui::DragFloat("Offset (mm)", &s.adjOffset, 0.05f, -1000.0f, 1000.0f, "%.3f");
+
+            if (ImGui::Button("Apply Adjustment", ImVec2(-FLT_MIN, 0))) s.applyAdjustment();
+            if (ImGui::SmallButton("Reset")) s.resetAdjustment();
+
+            const auto& res = s.residualFor(i);
+            ImGui::TextDisabled("flatness: RMS %.3f  max %.3f mm", res.rms, res.maxAbs);
+
+            ImGui::TextUnformatted("Assign");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Top")) s.assignDatum(ma::DatumRole::Top, p.normal);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Front")) s.assignDatum(ma::DatumRole::Front, p.normal);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Right")) s.assignDatum(ma::DatumRole::Right, p.normal);
+            ImGui::Unindent(8.0f);
+            ImGui::Separator();
+          }
+        } else {
+          // Compact candidate row with quick-assign buttons.
+          ImGui::Text("Plane %2zu  %-9s %3.0f%%", i, p.source.c_str(), p.confidence * 100.0);
+          ImGui::SameLine();
+          if (ImGui::SmallButton("T")) s.assignDatum(ma::DatumRole::Top, p.normal);
+          ImGui::SameLine();
+          if (ImGui::SmallButton("F")) s.assignDatum(ma::DatumRole::Front, p.normal);
+          ImGui::SameLine();
+          if (ImGui::SmallButton("R")) s.assignDatum(ma::DatumRole::Right, p.normal);
+        }
         ImGui::PopID();
       }
     }
     if (!s.result.cylinders.empty()) {
       ImGui::Separator();
-      for (size_t i = 0; i < s.result.cylinders.size(); ++i)
-        ImGui::Text("Bore %zu  r=%.2f", i, s.result.cylinders[i].radius);
+      for (size_t i = 0; i < s.result.cylinders.size(); ++i) {
+        const auto& c = s.result.cylinders[i];
+        ImGui::PushID(static_cast<int>(1000 + i));
+        ImGui::Text("Hole %zu  dia %.2f  L %.2f  %3.0f%%", i, 2.0 * c.radius, c.length,
+                    c.confidence * 100.0);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Axis->Top")) s.assignDatum(ma::DatumRole::Top, c.axisDir);
+        ImGui::PopID();
+      }
     }
   }
 
@@ -280,13 +342,23 @@ void drawRightPanel(AppState& s) {
       s.refreshLut();
     }
 
+    // colour-scale range: auto (data-driven) or manual
+    if (ImGui::Checkbox("Auto-range", &s.autoRange)) s.applyRange();
+    if (!s.autoRange) {
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(90);
+      if (ImGui::DragFloat("+/- (mm)", &s.manualRange, 0.02f, 0.01f, 1000.0f, "%.2f"))
+        s.applyRange();
+    }
+
     ImGui::BeginDisabled(s.mesh.empty() || (s.devMode == 0 && !s.hasReference));
     if (ImGui::Button("Run Deviation", ImVec2(-FLT_MIN, 0))) s.runDeviation();
     ImGui::EndDisabled();
     if (s.hasDeviation) {
-      ImGui::Checkbox("Show heatmap", &s.showHeatmap);
+      ImGui::Checkbox("Show heatmap", &s.showHeatmap);  // uncheck = hide map
       auto st = s.deviationStats();
       ImGui::Text("range: %.3f .. %.3f mm", s.deviation.minMm, s.deviation.maxMm);
+      ImGui::Text("RMS: %.3f mm  (scale +/-%.2f)", st.rms, s.lutRange);
       ImGui::TextColored(ImVec4(0.4f, 0.85f, 0.4f, 1), "%.0f%% in tolerance", st.pctIn);
       ImGui::TextDisabled("warn %d  out %d", st.warn, st.out);
     }
@@ -412,7 +484,7 @@ void drawViewport(AppState& s) {
         const Eigen::Vector3f nw = nh.head<3>() / nh.w();
         const Eigen::Vector3f fw = fh.head<3>() / fh.w();
         const Eigen::Vector3f dW = (fw - nw).normalized();
-        const Eigen::Matrix4d invModel = s.currentTransform().inverse();
+        const Eigen::Matrix4d invModel = s.previewTransform().inverse();
         const Eigen::Vector3d oP =
             (invModel * Eigen::Vector4d(nw.x(), nw.y(), nw.z(), 1.0)).head<3>();
         const Eigen::Vector3d dP = invModel.topLeftCorner<3, 3>() * dW.cast<double>();

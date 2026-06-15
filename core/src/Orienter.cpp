@@ -40,6 +40,20 @@ void buildFrame(const Eigen::Vector3d& Zin, const Eigen::Vector3d& Xhint,
   X = Y.cross(Z).normalized();
 }
 
+// Global vertex PCA elongation ratio (largest : mid : 1), for the UI readout.
+Eigen::Vector3d pcaRatio(const Mesh& mesh) {
+  const Eigen::Vector3d c = mesh.centroid();
+  Eigen::Matrix3d C = Eigen::Matrix3d::Zero();
+  for (Eigen::Index i = 0; i < mesh.V.rows(); ++i) {
+    const Eigen::Vector3d d = mesh.V.row(i).transpose() - c;
+    C += d * d.transpose();
+  }
+  Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es(C);  // ascending e0<=e1<=e2
+  const Eigen::Vector3d ev = es.eigenvalues().cwiseMax(0.0);
+  const double e0 = std::max(ev(0), 1e-12);
+  return Eigen::Vector3d(ev(2) / e0, ev(1) / e0, 1.0);
+}
+
 OrientationResult pcaFallback(const Mesh& mesh) {
   const Eigen::Vector3d c = mesh.centroid();
   Eigen::Matrix3d C = Eigen::Matrix3d::Zero();
@@ -53,6 +67,7 @@ OrientationResult pcaFallback(const Mesh& mesh) {
   OrientationResult r;
   r.transform = makeTransform(X, Y, Z, c);
   r.eulerXYZ_deg = r.transform.topLeftCorner<3, 3>().eulerAngles(0, 1, 2) * kRad2Deg;
+  r.pcaRatio = pcaRatio(mesh);
   r.confidence = 0.25;
   r.method = "PCA fallback";
   return r;
@@ -107,7 +122,9 @@ OrientationResult orient(const Mesh& mesh, std::vector<DetectedPlane>& planes,
   if (symUsable) {
     Xhint = symmetry.normal;
     method += "; symmetry -> Right";
-  } else {
+  }
+  std::string rightSource = symUsable ? "symmetry" : "face";
+  if (!symUsable) {
     double best = 0.0;
     for (size_t i = 0; i < planes.size(); ++i) {
       if (static_cast<int>(i) == topIdx) continue;
@@ -116,7 +133,11 @@ OrientationResult orient(const Mesh& mesh, std::vector<DetectedPlane>& planes,
       if (s > best) { best = s; Xhint = planes[i].normal; rightIdx = static_cast<int>(i); }
     }
     if (rightIdx >= 0) method += "; secondary face -> Right";
-    else if (!cylinders.empty()) { Xhint = cylinders.front().axisDir; method += "; bore -> Right"; }
+    else if (!cylinders.empty()) {
+      Xhint = cylinders.front().axisDir;
+      rightSource = "bore";
+      method += "; bore -> Right";
+    }
   }
 
   Eigen::Vector3d X, Y, Z;
@@ -125,6 +146,7 @@ OrientationResult orient(const Mesh& mesh, std::vector<DetectedPlane>& planes,
   OrientationResult r;
   r.transform = makeTransform(X, Y, Z, centroid);
   r.eulerXYZ_deg = r.transform.topLeftCorner<3, 3>().eulerAngles(0, 1, 2) * kRad2Deg;
+  r.pcaRatio = pcaRatio(mesh);
   r.method = method;
   r.topPlaneId = topIdx;
   r.rightPlaneId = rightIdx;
@@ -134,10 +156,22 @@ OrientationResult orient(const Mesh& mesh, std::vector<DetectedPlane>& planes,
   const double symConf = std::clamp(symmetry.score, 0.0, 1.0);
   r.confidence = std::clamp(0.55 * topConf + 0.30 * symConf + 0.15, 0.0, 1.0);
 
-  // mark roles for the UI
-  for (auto& p : planes) p.role = DatumRole::None;
-  if (topIdx >= 0) planes[static_cast<size_t>(topIdx)].role = DatumRole::Top;
-  if (rightIdx >= 0) planes[static_cast<size_t>(rightIdx)].role = DatumRole::Right;
+  // mark roles + classification for the UI
+  for (auto& p : planes) {
+    p.role = DatumRole::None;
+    p.tier = "Candidate";
+    p.source = "feature";
+  }
+  if (topIdx >= 0) {
+    planes[static_cast<size_t>(topIdx)].role = DatumRole::Top;
+    planes[static_cast<size_t>(topIdx)].tier = "Primary";
+    planes[static_cast<size_t>(topIdx)].source = "face";
+  }
+  if (rightIdx >= 0) {
+    planes[static_cast<size_t>(rightIdx)].role = DatumRole::Right;
+    planes[static_cast<size_t>(rightIdx)].tier = "Tertiary";
+    planes[static_cast<size_t>(rightIdx)].source = rightSource;
+  }
 
   return r;
 }

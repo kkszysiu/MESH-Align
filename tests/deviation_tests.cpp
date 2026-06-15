@@ -73,6 +73,26 @@ int main() {
     CHECK(std::abs(dev.minMm + 5.0) < 1e-6);
   }
 
+  // ---- planeResidual: flat face has ~0 residual; offset point shifts it ----
+  {
+    // find the +Z top face triangles of the box (all verts at z=+5)
+    std::vector<int> top;
+    for (Eigen::Index f = 0; f < box.F.rows(); ++f) {
+      bool allTop = true;
+      for (int k = 0; k < 3; ++k)
+        if (std::abs(box.V(box.F(f, k), 2) - 5.0) > 1e-6) allTop = false;
+      if (allTop) top.push_back(static_cast<int>(f));
+    }
+    CHECK(top.size() == 2);
+    auto flat = ma::planeResidual(box, Eigen::Vector3d(0, 0, 5), Eigen::Vector3d(0, 0, 1), top);
+    CHECK(flat.rms < 1e-9);
+    CHECK(flat.maxAbs < 1e-9);
+    // measuring those same verts against z=0 plane -> all exactly 5 away
+    auto off = ma::planeResidual(box, Eigen::Vector3d(0, 0, 0), Eigen::Vector3d(0, 0, 1), top);
+    CHECK(std::abs(off.rms - 5.0) < 1e-9);
+    CHECK(std::abs(off.maxAbs - 5.0) < 1e-9);
+  }
+
   if (g_failures == 0) {
     std::printf("All deviation tests passed.\n");
     return 0;

@@ -60,6 +60,7 @@ int main() {
     if (!cs.empty()) {
       CHECK(std::abs(cs[0].radius - 10.0) < 0.5);
       CHECK(std::abs(cs[0].axisDir.normalized().dot(Eigen::Vector3d::UnitZ())) > 0.99);
+      CHECK(cs[0].length > 35.0 && cs[0].length < 41.0);  // wall spans ~40mm
     }
   }
 
@@ -74,6 +75,23 @@ int main() {
 
     ma::AnalysisResult res = ma::analyze(tilted);
     CHECK(res.orientation.confidence > 0.5);
+
+    // the Top-role plane is classified Primary; all planes carry a source tag
+    int primaries = 0;
+    for (const auto& p : res.planes) {
+      if (p.role == ma::DatumRole::Top) {
+        CHECK(p.tier == "Primary");
+        ++primaries;
+      }
+      CHECK(!p.source.empty());
+    }
+    CHECK(primaries == 1);
+
+    // PCA elongation of a 40x20x10 box ~ 16 : 4 : 1 (rotation-invariant)
+    const Eigen::Vector3d pr = res.orientation.pcaRatio;
+    CHECK(std::abs(pr.x() - 16.0) < 1.0);
+    CHECK(std::abs(pr.y() - 4.0) < 0.5);
+    CHECK(std::abs(pr.z() - 1.0) < 1e-6);
     ma::Mesh aligned = ma::io::transformed(tilted, res.orientation.transform);
     CHECK(axisAligned(aligned, 1e-2));
 

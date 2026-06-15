@@ -1,61 +1,106 @@
 # MESH-Align
 
-Auto-alignment for scan meshes. Drop in an STL/OBJ/PLY, and MESH-Align detects
-flat faces, bores, and symmetry, then snaps the part to a clean **Top / Front /
-Right** datum frame — with manual datum tools and a deviation heatmap for checking
-a scan against nominal.
+Cross-platform C++ desktop tool for the first, most tedious step of scan-to-CAD:
+squaring a freshly imported scan to a clean coordinate frame. Drop in an
+**STL/OBJ/PLY** and MESH-Align detects flat faces, bores, and symmetry, then
+snaps the part to a clean **Top / Front / Right** datum frame — with manual datum
+tools when it guesses wrong, and a deviation heatmap for checking a scan against
+nominal.
 
-See [`docs/PLAN.md`](docs/PLAN.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
-and [`docs/ALGORITHMS.md`](docs/ALGORITHMS.md) for the full design.
+Runs on **Windows, macOS, and Linux**. Tested with Revopoint Metro X Pro scans.
 
-> Status: **M4 — deviation heatmap.** Everything from M3 plus scan-vs-nominal
-> inspection: load a reference mesh, **best-fit ICP** (PCA init + point-to-
-> plane), per-vertex **signed-distance** colouring via a tolerance-band LUT
-> shader, a mm **scalar color bar**, live in-tol/warn sliders, and an
-> in-tolerance % readout. Also supports deviation **vs a fitted datum plane**
-> (no reference needed). Backed by an internal BVH for closest-point queries.
->
-> CLI flags: `--analyze` (auto-orient on load), `--ref <file> --deviation`
-> (load nominal + run deviation).
->
-> Note: PLY export is binary little-endian; ASCII PLY input is handled by a
-> small built-in reader (tinyply 2.3.4's ASCII path is unreliable).
+## Features
+
+- **Import** STL / OBJ / PLY (drag-and-drop, file dialog, or CLI), with a mesh
+  **validation** report (components, manifoldness, boundary edges, watertight).
+- **Auto-orientation** — an analysis pipeline runs off the UI thread:
+  normals → region-grow **plane extraction** → RANSAC **bore/cylinder detection**
+  → reflective **symmetry** → **Top/Front/Right** assignment with a confidence
+  score and the method used. The part snaps to the datum frame with translucent
+  datum planes.
+- **Manual datum tools** — reassign any detected plane to Top/Front/Right,
+  define a **plane from 3 picked points**, **click a hole** to fit a cylinder and
+  align its axis, nudge per-axis, or drag a transform **gizmo**. *Revert to Auto*
+  restores the automatic result.
+- **Deviation heatmap** — best-fit **ICP** to a loaded reference mesh (or compare
+  against a fitted datum plane), per-vertex **signed distance**, configurable
+  **tolerance bands** (green/yellow/red), a mm **scalar color bar**, and an
+  in-tolerance % readout.
+- **Export** the aligned mesh (STL/OBJ/PLY) and the 4×4 transform.
 
 ## Layout
 
 ```
 core/    meshalign_core    geometry + data, NO GL / NO ImGui   (namespace ma)
-render/  meshalign_render   OpenGL 3.3 renderer                 (namespace ma::gl)
-app/     meshalign          Dear ImGui shell                    (namespace ma::ui)
+render/  meshalign_render  OpenGL 3.3 renderer                 (namespace ma::gl)
+app/     meshalign         Dear ImGui shell                    (namespace ma::ui)
 tests/   headless core tests
-docs/    design docs
+docs/    design docs (PLAN / ARCHITECTURE / ALGORITHMS)
 ```
+
+The geometry core links no GL/ImGui and is unit-tested headlessly. See
+[AGENTS.md](AGENTS.md) for the architecture and contributor notes, and
+[`docs/`](docs/) for the full design.
 
 ## Build
 
-Requires CMake ≥ 3.20 and a C++17 compiler. Dependencies (Eigen, GLFW, Dear ImGui
-+ ImGuizmo, and glad off-macOS) are fetched automatically via CPM on first
-configure, so the first build needs network access.
+Requires CMake ≥ 3.20 and a C++17 compiler. Dependencies (Eigen, GLFW, Dear
+ImGui + ImGuizmo, tinyobjloader, tinyply, nanoflann, portable-file-dialogs, and
+glad off-macOS) are fetched automatically via CPM on first configure, so the
+**first build needs network access**.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-./build/app/meshalign                 # run the app (demo part)
-./build/app/meshalign part.stl        # ...or open a mesh on startup
-ctest --test-dir build                # run headless core tests
+ctest --test-dir build --output-on-failure      # headless tests
 ```
 
-On Linux you also need GL/X11 dev headers: `sudo apt-get install libgl1-mesa-dev xorg-dev`.
+On Linux also install GL/X11 dev headers:
+`sudo apt-get install libgl1-mesa-dev xorg-dev`.
 
-### Useful options
+### Options
 - `-DMA_BUILD_APP=OFF` — build just the geometry core + tests (no GL).
-- `-DMA_USE_SYSTEM_GLFW=ON` — link a system GLFW instead of fetching.
+- `-DMA_BUILD_TESTS=OFF` — skip tests.
+- `-DMA_USE_SYSTEM_GLFW=ON` — link a system GLFW instead of fetching one.
+
+## Run
+
+```sh
+./build/app/meshalign                                  # loads a built-in demo part
+./build/app/meshalign part.stl                         # open a mesh on startup
+./build/app/meshalign part.stl --analyze               # auto-orient on load
+./build/app/meshalign scan.ply --ref nominal.ply --deviation   # heatmap on load
+```
+
+Sample meshes are generated into [`samples/`](samples/) for quick testing.
 
 ## Controls
+
 - **Left-drag** orbit · **Middle/Right-drag** pan · **Wheel** zoom
 - View presets (Top/Front/Right/Iso/Back/Left) in the right-hand *Datums* panel
-- **Run Analysis** to auto-orient; reassign datums with the **T/F/R** buttons
-  per detected plane
-- **Plane from 3 Points** / **Pick Hole / Cylinder**: choose the target datum,
+- **Run Analysis** to auto-orient; reassign datums with the **T/F/R** buttons per
+  detected plane
+- **Plane from 3 Points** / **Pick Hole / Cylinder**: pick the target datum, then
   click in the viewport (**Esc** cancels)
 - **Nudge Datum**: per-axis rotate, or enable the **Gizmo** to drag the frame
+- **Deviation**: Open Reference → Run Deviation; drag the in-tol/warn sliders live
+- **Ctrl/Cmd+Q** to quit
+
+## Releases
+
+Pushing a `v*` tag builds and tests on Linux x64, Windows x64, and macOS arm64;
+if all succeed, the binaries are attached to the GitHub Release for that tag.
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+> Binaries are unsigned. On macOS, first launch may need
+> `xattr -dr com.apple.quarantine ./meshalign` (or right-click → Open).
+
+## Notes
+
+- PLY export is binary little-endian; ASCII PLY input uses a small built-in
+  reader (tinyply 2.3.4's ASCII path is unreliable).
+- ICP/deviation currently run synchronously on the click; large scans may pause
+  briefly while computing.

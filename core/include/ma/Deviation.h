@@ -24,4 +24,14 @@ DeviationField deviationToReference(const Mesh& scan, const Mesh& reference, con
 DeviationField deviationToPlane(const Mesh& scan, const Eigen::Vector3d& point,
                                 const Eigen::Vector3d& normal, const ToleranceBands& bands);
 
+struct PlaneResidual {
+  double rms = 0.0;
+  double maxAbs = 0.0;
+};
+
+// Flatness of a detected plane: RMS / max absolute distance of the inlier faces'
+// vertices to the fitted plane (point, unit normal). Empty inliers -> zeros.
+PlaneResidual planeResidual(const Mesh& mesh, const Eigen::Vector3d& point,
+                            const Eigen::Vector3d& normal, const std::vector<int>& inlierFaces);
+
 }  // namespace ma

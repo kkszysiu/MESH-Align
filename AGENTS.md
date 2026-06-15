@@ -92,7 +92,7 @@ put it in `core` and call it; never reach the other way.
 
 M0–M4 complete: import → validate → auto-orient → manual datums → deviation
 heatmap. Open follow-ups: move ICP/deviation to the worker thread (currently
-synchronous), wire the mockup's "Apply Adjustment", real CI run, and packaging
+synchronous), wire the planned "Apply Adjustment", real CI run, and packaging
 (M5). CI (`.github/workflows/build.yml`) is written but unverified across the 3
 OSes; verification so far is macOS-only.
 

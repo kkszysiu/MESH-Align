@@ -3,6 +3,7 @@
 #include <Eigen/Geometry>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <random>
 
 namespace ma {
@@ -126,12 +127,25 @@ std::vector<DetectedCylinder> extractCylinders(const Mesh& mesh, const FaceData&
     }
     best.radius = rsum / bestInliers.size();
 
+    // axial extent: span of inlier vertices projected onto the axis
+    double amin = std::numeric_limits<double>::infinity();
+    double amax = -std::numeric_limits<double>::infinity();
+    for (int f : bestInliers) {
+      for (int k = 0; k < 3; ++k) {
+        const double a = mesh.V.row(mesh.F(f, k)).dot(best.axisDir);
+        amin = std::min(amin, a);
+        amax = std::max(amax, a);
+      }
+    }
+    const double length = (amax > amin) ? (amax - amin) : 0.0;
+
     for (int f : bestInliers) used[static_cast<size_t>(f)] = 1;
 
     DetectedCylinder cyl;
     cyl.axisPoint = best.axisPoint;
     cyl.axisDir = best.axisDir.normalized();
     cyl.radius = best.radius;
+    cyl.length = length;
     cyl.inlierFaces = bestInliers;
     cyl.confidence = std::clamp(static_cast<double>(bestInliers.size()) /
                                     std::max(1.0, 0.15 * active.size()),

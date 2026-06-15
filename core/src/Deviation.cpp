@@ -164,6 +164,25 @@ DeviationField deviationToReference(const Mesh& scan, const Mesh& reference, con
   return fld;
 }
 
+PlaneResidual planeResidual(const Mesh& mesh, const Eigen::Vector3d& point,
+                            const Eigen::Vector3d& normal, const std::vector<int>& inlierFaces) {
+  PlaneResidual r;
+  const Eigen::Vector3d n = normal.normalized();
+  double sse = 0.0;
+  long count = 0;
+  for (int f : inlierFaces) {
+    if (f < 0 || f >= mesh.F.rows()) continue;
+    for (int k = 0; k < 3; ++k) {
+      const double d = (mesh.V.row(mesh.F(f, k)).transpose() - point).dot(n);
+      sse += d * d;
+      r.maxAbs = std::max(r.maxAbs, std::abs(d));
+      ++count;
+    }
+  }
+  r.rms = count ? std::sqrt(sse / count) : 0.0;
+  return r;
+}
+
 DeviationField deviationToPlane(const Mesh& scan, const Eigen::Vector3d& point,
                                 const Eigen::Vector3d& normal, const ToleranceBands& bands) {
   DeviationField fld;
