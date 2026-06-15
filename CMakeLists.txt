@@ -14,6 +14,14 @@ endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
+# On Windows, <windows.h> (pulled in by portable-file-dialogs / glad) defines
+# min/max macros that collide with std::min/std::max and corrupt the parse.
+# Suppress them everywhere (applies to all targets added below, incl. deps).
+# (Only NOMINMAX — WIN32_LEAN_AND_MEAN would strip headers pfd needs.)
+if(WIN32)
+  add_compile_definitions(NOMINMAX)
+endif()
+
 # ---- options ----------------------------------------------------------------
 option(MA_BUILD_APP   "Build the MESH-Align GUI app" ON)
 option(MA_BUILD_TESTS "Build headless core tests"    ON)
