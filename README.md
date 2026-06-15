@@ -75,6 +75,11 @@ On Linux also install GL/X11 dev headers:
 ./build/app/meshalign scan.ply --ref nominal.ply --deviation   # heatmap on load
 ```
 
+On **macOS** the build produces an app bundle (`build/app/meshalign.app`) with the
+application icon — `open build/app/meshalign.app`, or run with CLI flags via
+`./build/app/meshalign.app/Contents/MacOS/meshalign part.stl`. Windows/Linux build
+a plain `meshalign(.exe)` with the icon embedded (taskbar) / installed (`.desktop`).
+
 Sample meshes are generated into [`samples/`](samples/) for quick testing.
 
 ## Controls

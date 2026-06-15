@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=MESH-Align
+Comment=Scan-to-CAD auto-alignment and deviation inspection
+Exec=meshalign %f
+Icon=meshalign
+Terminal=false
+Categories=Graphics;Engineering;Science;
+MimeType=model/stl;model/obj;application/sla;

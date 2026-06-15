@@ -58,12 +58,20 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure --build-config Release
 
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
+      - name: Package (macOS .app bundle)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist
+          cp -R build/app/meshalign.app dist/
+          cp README.md dist/ 2>/dev/null || true
+          tar -czf "${{ matrix.artifact }}" -C dist .
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
         run: |
           mkdir -p dist
           cp build/app/meshalign dist/
-          cp README.md LICENSE dist/ 2>/dev/null || true
+          cp assets/icon.png assets/meshalign.desktop README.md dist/ 2>/dev/null || true
           tar -czf "${{ matrix.artifact }}" -C dist .
 
       - name: Package (Windows)

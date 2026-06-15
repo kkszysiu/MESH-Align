@@ -11,6 +11,7 @@
 
 #include "AppState.h"
 #include "Panels.h"
+#include "app_icon.h"
 #include "ma/PrimitiveMeshes.h"
 
 #include <cstdio>
@@ -81,6 +82,17 @@ int main(int argc, char** argv) {
   }
   glfwMakeContextCurrent(window);
   glfwSwapInterval(1);
+
+  // Window/taskbar icon (ignored on macOS, which uses the .app bundle icon).
+#ifndef __APPLE__
+  {
+    GLFWimage img;
+    img.width = ma::kAppIconW;
+    img.height = ma::kAppIconH;
+    img.pixels = const_cast<unsigned char*>(ma::kAppIconRGBA);
+    glfwSetWindowIcon(window, 1, &img);
+  }
+#endif
 
 #ifdef MA_USE_GLAD
   if (!gladLoadGL((GLADloadfunc)glfwGetProcAddress)) {

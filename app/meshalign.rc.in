@@ -1,0 +1,4 @@
+// Windows resource: embed the application icon into the executable.
+// Configured by CMake (@MA_ICON_ICO@ -> assets/icon.ico). IDI_ICON1 = first icon,
+// which Explorer/taskbar use as the app icon.
+IDI_ICON1 ICON "@MA_ICON_ICO@"
