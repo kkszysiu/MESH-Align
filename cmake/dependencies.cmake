@@ -62,6 +62,23 @@ target_include_directories(portable_file_dialogs SYSTEM INTERFACE "${portable_fi
 if(MA_USE_SYSTEM_GLFW)
   find_package(glfw3 REQUIRED)
 else()
+  # GLFW selects X11 vs Wayland at *runtime*, but only among the backends compiled
+  # in. The Wayland backend is a build-time dependency (wayland-scanner + dev libs).
+  # So: always build X11, and auto-enable Wayland only when its build deps are
+  # present — giving runtime autodetection where possible, and a clean X11-only
+  # build (XWayland still works) everywhere else. Override with -DGLFW_BUILD_WAYLAND.
+  set(MA_GLFW_WAYLAND OFF)
+  if(UNIX AND NOT APPLE)
+    find_program(MA_WAYLAND_SCANNER wayland-scanner)
+    find_package(PkgConfig QUIET)
+    if(MA_WAYLAND_SCANNER AND PkgConfig_FOUND)
+      pkg_check_modules(MA_WL QUIET wayland-client wayland-cursor wayland-egl xkbcommon)
+      if(MA_WL_FOUND)
+        set(MA_GLFW_WAYLAND ON)
+      endif()
+    endif()
+    message(STATUS "GLFW backends: X11=ON  Wayland=${MA_GLFW_WAYLAND}")
+  endif()
   CPMAddPackage(
     NAME glfw
     GITHUB_REPOSITORY glfw/glfw
@@ -71,6 +88,8 @@ else()
       "GLFW_BUILD_TESTS OFF"
       "GLFW_BUILD_EXAMPLES OFF"
       "GLFW_INSTALL OFF"
+      "GLFW_BUILD_X11 ON"
+      "GLFW_BUILD_WAYLAND ${MA_GLFW_WAYLAND}"
   )
 endif()
 
