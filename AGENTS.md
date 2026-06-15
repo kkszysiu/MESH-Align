@@ -91,10 +91,16 @@ put it in `core` and call it; never reach the other way.
 ## Status
 
 M0–M4 complete: import → validate → auto-orient → manual datums → deviation
-heatmap. Open follow-ups: move ICP/deviation to the worker thread (currently
-synchronous), wire the planned "Apply Adjustment", real CI run, and packaging
-(M5). CI (`.github/workflows/build.yml`) is written but unverified across the 3
-OSes; verification so far is macOS-only.
+heatmap. UI-gap follow-ups #1–#5 also done: per-datum Apply Adjustment editor
+(live preview), bore diameter+length, plane classification (tier/source +
+bore-seat), diverging deviation colormap with auto-range + RMS, and header
+readouts (top confidence + PCA ratio).
+
+Open follow-ups: move ICP/deviation off the UI thread (currently synchronous on
+click), a real release/packaging pass (M5), and a real CI run — CI
+(`.github/workflows/build.yml`, `release.yml`) is written but unverified across
+the 3 OSes; verification so far is macOS-only. Cosmetic-only gaps remain
+(Settings/Help menus, theme toggle, status bar, unit auto-scaling).
 
 ## When you change things
 

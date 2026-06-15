@@ -15,17 +15,20 @@ Runs on **Windows, macOS, and Linux**. Tested with Revopoint Metro X Pro scans.
   **validation** report (components, manifoldness, boundary edges, watertight).
 - **Auto-orientation** — an analysis pipeline runs off the UI thread:
   normals → region-grow **plane extraction** → RANSAC **bore/cylinder detection**
-  → reflective **symmetry** → **Top/Front/Right** assignment with a confidence
-  score and the method used. The part snaps to the datum frame with translucent
-  datum planes.
-- **Manual datum tools** — reassign any detected plane to Top/Front/Right,
-  define a **plane from 3 picked points**, **click a hole** to fit a cylinder and
-  align its axis, nudge per-axis, or drag a transform **gizmo**. *Revert to Auto*
-  restores the automatic result.
+  (with diameter + length) → reflective **symmetry** → **Top/Front/Right**
+  assignment with a confidence score and the method used. Detected features are
+  listed with a **classification** (Primary/Secondary/Tertiary · source, plus
+  *bore-seat* flats), and the header shows top-datum confidence + the part's PCA
+  elongation ratio. The part snaps to the datum frame with translucent datum planes.
+- **Manual datum tools** — reassign any detected plane to Top/Front/Right; an
+  inline **per-datum editor** (rotate about an axis + offset with live preview,
+  **Apply** / **Reset**, per-datum flatness RMS); define a **plane from 3 picked
+  points**; **click a hole** to fit a cylinder and align its axis; nudge per-axis;
+  or drag a transform **gizmo**. *Revert to Auto* restores the automatic result.
 - **Deviation heatmap** — best-fit **ICP** to a loaded reference mesh (or compare
-  against a fitted datum plane), per-vertex **signed distance**, configurable
-  **tolerance bands** (green/yellow/red), a mm **scalar color bar**, and an
-  in-tolerance % readout.
+  against a fitted datum plane), per-vertex **signed distance**, a **diverging
+  blue→white→red** colormap with a green in-tolerance overlay, **auto/manual range**,
+  a mm **scalar color bar**, and RMS + in-tolerance % readouts.
 - **Export** the aligned mesh (STL/OBJ/PLY) and the 4×4 transform.
 
 ## Layout
