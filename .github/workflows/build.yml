@@ -33,13 +33,20 @@ jobs:
           sudo apt-get install -y libgl1-mesa-dev xorg-dev \
             libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
       - uses: actions/setup-python@v5
+        id: py
         if: runner.os != 'macOS'    # glad code-gen runs Python (needs jinja2)
         with:
           python-version: '3.12'
       - name: Install glad codegen deps
         if: runner.os != 'macOS'
         run: python -m pip install jinja2
-      - name: Configure
+      - name: Configure (Linux/Windows)
+        if: runner.os != 'macOS'
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
+          -DPython3_EXECUTABLE="${{ steps.py.outputs.python-path }}"
+      - name: Configure (macOS)
+        if: runner.os == 'macOS'
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - name: Build
         run: cmake --build build --parallel --config Release
